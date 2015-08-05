@@ -2,6 +2,7 @@ import sublime
 import sublime_plugin
 import json
 import subprocess
+import os
 from os.path import expanduser
 
 class TitaniumCommand(sublime_plugin.WindowCommand):
@@ -18,6 +19,8 @@ class TitaniumCommand(sublime_plugin.WindowCommand):
         self.iosSimVersion    = settings.get("iosSimVersion", False)
         self.tiInspectorHost  = settings.get("tiInspectorHost", False)
         self.genymotionCLI    = str(settings.get("genymotionCLI", "/Applications/Genymotion Shell.app/Contents/MacOS/genyshell"))
+        self.tishadow         = ""
+        self.tishadowPath     = settings.get("TiShadowLocation", "/usr/local/bin/tishadow")
 
         folders = self.window.folders()
         if len(folders) <= 0:
@@ -76,6 +79,15 @@ class TitaniumCommand(sublime_plugin.WindowCommand):
 
         self.show_quick_panel(self.platforms, self.select_platform)
 
+    def tishadow_installed(self):
+        try:
+            devnull = open(os.devnull)
+            subprocess.Popen([self.tishadowPath], stdout=devnull, stderr=devnull).communicate()
+        except OSError as e:
+            if e.errno == os.errno.ENOENT:
+                return False
+        return True
+
     def select_platform(self, select):
         if select < 0:
             return
@@ -85,9 +97,13 @@ class TitaniumCommand(sublime_plugin.WindowCommand):
             self.window.run_command("exec", titaniumMostRecent)
         elif self.platform == "ios":
             self.targets = ["simulator", "device", "dist-appstore", "dist-adhoc"]
+            if self.tishadow_installed():
+                self.targets.extend(["simulator TiShadow", "device TiShadow"])
             self.show_quick_panel(self.targets, self.select_ios_target)
         elif self.platform == "android":
             self.targets = ["GenyMotion", "emulator", "device", "dist-playstore"]
+            if self.tishadow_installed():
+                self.targets.extend(["GenyMotion TiShadow", "emulator TiShadow", "device TiShadow"])
             self.show_quick_panel(self.targets, self.select_android_target)
         elif self.platform == "mobileweb":
             self.targets = ["development", "production"]
@@ -108,6 +124,8 @@ class TitaniumCommand(sublime_plugin.WindowCommand):
     def run_titanium(self, options=[]):
         cmd = [self.cli, "build", "--sdk", self.project_sdk, "--project-dir", self.project_folder, "--no-colors", "--platform", self.platform, "--log-level", self.loggingLevel]
         cmd.extend(options)
+        if self.tishadow == "TiShadow":
+            cmd.extend(["--shadow"])
         execCMD = {"cmd": ' '.join(cmd), "shell": True}
 
         # save most recent command
@@ -119,6 +137,8 @@ class TitaniumCommand(sublime_plugin.WindowCommand):
     def run_genymotion(self, options=[]):
         cmd = [self.cli, "build", "--sdk", self.project_sdk, "--project-dir", self.project_folder, "--no-colors", "--platform", self.platform, "--log-level", self.loggingLevel]
         cmd.extend(options)
+        if self.tishadow == "TiShadow":
+            cmd.extend(["--shadow"])
         execCMD = {"cmd": cmd}
 
         # save most recent command
@@ -165,6 +185,8 @@ class TitaniumCommand(sublime_plugin.WindowCommand):
         if select < 0:
             return
         target = self.targets[select]
+        if len(target.split(" ")) == 2:
+            target, self.tishadow = target.split(" ")
         if (target == "emulator"):
             self.load_android_avds()
             self.show_quick_panel(self.avds, self.select_android_avd)
@@ -193,6 +215,8 @@ class TitaniumCommand(sublime_plugin.WindowCommand):
         if select < 0:
             return
         self.target = self.targets[select]
+        if len(self.target.split(" ")) == 2:
+            self.target, self.tishadow = self.target.split(" ")
         self.load_ios_sdk_info()
         if self.target == "simulator":
             self.prompt_ios_simtype()
